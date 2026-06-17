@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Аида</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{--ink:#101010;--mut:#8c8c8c;--line:#ececec;--soft:#f5f5f3;--acc:#e5482f}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#fff;color:var(--ink);font-family:-apple-system,Inter,Segoe UI,Roboto,sans-serif;
+       font-size:15px;line-height:1.45;padding:0 22px env(safe-area-inset-bottom)}
+  .lbl{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;letter-spacing:.16em;color:var(--mut)}
+  .wm{font-family:Georgia,"Times New Roman",serif;font-size:23px;letter-spacing:-.01em}
+  .hdr{display:flex;justify-content:space-between;align-items:baseline;padding:16px 0 13px;border-bottom:1px solid var(--line)}
+  .sec{margin-top:24px}
+  .row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #f1f1f1}
+  .dot{width:18px;height:18px;border:1.5px solid #c9c9c9;border-radius:50%;flex:0 0 auto}
+  .big{font-size:42px;font-weight:500;letter-spacing:-.02em}
+  .tr{height:6px;background:#eee;border-radius:3px}
+  .fl{height:6px;background:var(--ink);border-radius:3px}
+  .bk{display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px}
+  .wk{flex:1;background:#e2e2e2}
+  .muted{color:var(--mut)}
+  .center{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:75vh;text-align:center;gap:10px;color:var(--mut);padding:0 24px}
+  .banner{font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.08em;color:var(--acc);padding:8px 0 0}
+  .nav{display:flex;justify-content:space-around;padding:14px 0 calc(16px + env(safe-area-inset-bottom));margin-top:26px;
+       border-top:1px solid var(--line);font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.08em;color:#a6a6a6}
+  .nav .on{color:var(--ink)}
+</style>
+</head>
+<body>
+<div id="app"><div class="center" id="boot"><div class="wm">Аида</div><div id="st">загружаю…</div></div></div>
+<script>
+const API_BASE="https://aida.denisdaragan.com:8443";
+const SYM={RUB:"₽",USD:"$",EUR:"€"};
+const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const money=(m,c)=>(Math.round(m)/100).toLocaleString("ru-RU")+" "+(SYM[c]||c||"");
+const tg=window.Telegram&&window.Telegram.WebApp;
+const $=id=>document.getElementById(id);
+
+const DEMO={tasks:[{title:"Zoom с Андреем",due:"вт, 17 июн 14:00 (Мск)",overdue:false},
+  {title:"Позвонить по бетону · Пунто-Алла",due:"вт, 17 июн 16:00 (Мск)",overdue:false},
+  {title:"Согласовать смету · Ташкент",due:null,overdue:false}],
+  done_today:2,
+  finance:{total:[{cur:"RUB",total:32000000}],
+    by_project:[{grp:"Пунто-Алла",cur:"RUB",total:18000000},{grp:"Ташкент",cur:"RUB",total:9000000},{grp:"La Pigna",cur:"RUB",total:5000000}],
+    weekly:[{label:"26.05",amount_minor:14000000},{label:"02.06",amount_minor:21000000},{label:"09.06",amount_minor:12000000},{label:"16.06",amount_minor:28000000}]},
+  documents:[{title:"Договор · Л-Бюро",cp:"ООО «Л-Бюро»",doc_date:"05.05",amount_minor:7000000,currency:"RUB"}]};
+
+function setStatus(s){ if($("st")) $("st").textContent=s; }
+function fail(msg){ $("app").innerHTML='<div class="center"><div class="wm">Аида</div><div>'+esc(msg)+'</div></div>'; }
+
+function render(d,name,demo){
+  const today=new Date().toLocaleDateString("ru-RU",{weekday:"short",day:"2-digit",month:"2-digit"}).toUpperCase();
+  const tasks=d.tasks||[]; const hero=tasks.find(t=>t.due)||tasks[0];
+  const fin=d.finance||{total:[],by_project:[],weekly:[]};
+  const maxP=Math.max(1,...fin.by_project.map(p=>p.total));
+  const maxW=Math.max(1,...fin.weekly.map(w=>w.amount_minor));
+  let h="";
+  h+='<div class="hdr"><span class="wm">Аида</span><span class="lbl">'+esc(today)+'&nbsp;<span style="color:var(--acc)">■</span></span></div>';
+  if(demo) h+='<div class="banner">ДЕМО-РЕЖИМ · открой через бота для своих данных</div>';
+
+  h+='<div class="sec">';
+  if(hero){ h+='<div class="lbl">СЕЙЧАС</div><div style="font-size:22px;font-weight:500;margin-top:7px">'+esc(hero.title)+'</div>'+
+    '<div class="muted" style="font-size:13px;margin-top:3px">'+esc(hero.due||"без времени")+'</div>'; }
+  else h+='<div class="lbl">СЕГОДНЯ</div><div style="font-size:20px;font-weight:500;margin-top:7px">Пусто. Редкий день.</div>';
+  h+='</div>';
+
+  h+='<div class="sec"><div style="display:flex;justify-content:space-between;align-items:baseline">'+
+     '<span class="lbl">ДЕЛА</span><span class="lbl">'+(d.done_today||0)+' СДЕЛАНО</span></div>';
+  if(tasks.length) tasks.forEach((t,i)=>{ h+='<div class="row" style="'+(i==tasks.length-1?"border-bottom:none":"")+'">'+
+    '<span class="dot"></span><span style="flex:1">'+esc(t.title)+'</span>'+(t.due?'<span class="muted" style="font-size:12px">'+esc(t.due)+'</span>':"")+'</div>'; });
+  else h+='<div class="muted" style="padding:10px 0">Открытых дел нет.</div>';
+  h+='</div>';
+
+  h+='<div class="sec"><div class="lbl">РАСХОДЫ · МЕСЯЦ</div>';
+  if(fin.total.length){ h+='<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:8px">';
+    fin.total.forEach((x,i)=>{ h+='<span class="big">'+(Math.round(x.total)/100).toLocaleString("ru-RU")+'</span><span class="muted" style="font-size:18px">'+(SYM[x.cur]||x.cur)+'</span>'+(i<fin.total.length-1?'<span class="muted">·</span>':''); });
+    h+='</div>'; } else h+='<div class="big" style="margin-top:8px">0 ₽</div>';
+  if(fin.by_project.length){ h+='<div style="margin-top:16px;display:flex;flex-direction:column;gap:12px">';
+    fin.by_project.forEach(p=>{ h+='<div><div class="bk"><span>'+esc(p.grp)+'</span><span class="muted">'+money(p.total,p.cur)+'</span></div><div class="tr"><div class="fl" style="width:'+Math.max(4,Math.round(100*p.total/maxP))+'%"></div></div></div>'; });
+    h+='</div>'; }
+  if(fin.weekly.length){ h+='<div style="margin-top:20px"><div class="lbl">ПО НЕДЕЛЯМ</div><div style="display:flex;align-items:flex-end;gap:8px;height:56px;margin-top:10px">';
+    fin.weekly.forEach((w,i)=>{ h+='<div class="wk" style="height:'+Math.max(4,Math.round(100*w.amount_minor/maxW))+'%;'+(i==fin.weekly.length-1?'background:var(--ink)':'')+'"></div>'; });
+    h+='</div><div style="display:flex;justify-content:space-between;font-family:ui-monospace,monospace;font-size:11px;color:#a6a6a6;margin-top:6px">'+fin.weekly.map(w=>'<span>'+esc(w.label)+'</span>').join('')+'</div></div>'; }
+  h+='</div>';
+
+  const docs=d.documents||[];
+  if(docs.length){ h+='<div class="sec"><div class="lbl">ДОКУМЕНТЫ</div>';
+    docs.forEach((x,i)=>{ const sub=[x.cp,x.doc_date].filter(Boolean).join(" · ");
+      h+='<div class="row" style="'+(i==docs.length-1?"border-bottom:none":"")+'"><span style="flex:1"><div style="font-weight:500">'+esc(x.title)+'</div>'+(sub?'<div class="muted" style="font-size:12px">'+esc(sub)+'</div>':"")+'</span>'+(x.amount_minor?'<span style="font-size:13px">'+money(x.amount_minor,x.currency)+'</span>':"")+'</div>'; });
+    h+='</div>'; }
+
+  h+='<div class="nav"><span class="on">СЕГОДНЯ</span><span>ДЕЛА</span><span>ФИНАНСЫ</span><span>ДОКИ</span></div>';
+  $("app").innerHTML=h;
+}
+
+async function start(){
+  if(tg){ tg.ready(); tg.expand(); try{tg.setHeaderColor("#ffffff");tg.setBackgroundColor("#ffffff");}catch(e){} }
+  const initData=(tg&&tg.initData)||"";
+  if(!initData){ render(DEMO,"демо",true); return; }
+  setStatus("авторизация…");
+  try{
+    const a=await fetch(API_BASE+"/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({initData})});
+    if(!a.ok){ fail(a.status===403?"Доступ только у владельца (403)":"Авторизация не прошла ("+a.status+")"); return; }
+    const j=await a.json();
+    setStatus("загрузка данных…");
+    const r=await fetch(API_BASE+"/api/dashboard",{headers:{"Authorization":"Bearer "+j.token}});
+    if(!r.ok){ fail("Данные недоступны ("+r.status+")"); return; }
+    render(await r.json(),j.name,false);
+  }catch(e){ fail("Сбой: "+(e&&e.message?e.message:String(e))); }
+}
+start();
+</script>
+</body>
+</html>
