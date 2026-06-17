@@ -37,7 +37,7 @@
 <body>
 <div id="app"><div class="center"><div class="wm">Аида</div><div id="st">загружаю…</div></div></div>
 <script>
-const BUILD="2026-06-18a";
+const BUILD="2026-06-18b";
 const API_BASE="https://aida.denisdaragan.com:8443";
 const SYM={RUB:"₽",USD:"$",EUR:"€"};
 const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
@@ -145,9 +145,12 @@ async function start(){
   // expand/цвета — отложенно и в try, чтобы перелэйаут не сбивал критичный путь авторизации.
   setTimeout(()=>{ try{ if(tg){ tg.expand(); tg.setHeaderColor("#ffffff"); tg.setBackgroundColor("#ffffff"); } }catch(e){} },0);
 
-  if(!tg){ render(DEMO,"демо",true); return; }          // обычный браузер — превью дизайна
+  // SDK создаёт WebApp и в обычном браузере (platform="unknown"). Различаем:
+  // браузер → ДЕМО-превью; настоящий Telegram без initData → понятное сообщение.
+  const inTg=!!(tg&&tg.platform&&tg.platform!=="unknown");
+  if(!inTg){ render(DEMO,"демо",true); return; }         // обычный браузер — превью дизайна
   const initData=tg.initData||"";
-  if(!initData){ needOpen(); return; }                  // Telegram есть, но входа нет
+  if(!initData){ needOpen(); return; }                   // Telegram есть, но входа нет (баг десктопа)
 
   // 1) пробуем кэшированный токен — переживает перезагрузку вебвью
   const cached=loadTok();
