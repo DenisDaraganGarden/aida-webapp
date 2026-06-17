@@ -16,8 +16,10 @@
   .wm{font-family:Georgia,"Times New Roman",serif;font-size:23px;letter-spacing:-.01em}
   .hdr{display:flex;justify-content:space-between;align-items:baseline;padding:16px 0 13px;border-bottom:1px solid var(--line)}
   .sec{margin-top:24px}
+  .sechd{display:flex;justify-content:space-between;align-items:baseline}
   .row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #f1f1f1}
   .dot{width:18px;height:18px;border:1.5px solid #c9c9c9;border-radius:50%;flex:0 0 auto}
+  .dot.od{border-color:var(--acc)}
   .big{font-size:42px;font-weight:500;letter-spacing:-.02em}
   .tr{height:6px;background:#eee;border-radius:3px}
   .fl{height:6px;background:var(--ink);border-radius:3px}
@@ -29,24 +31,30 @@
   .btn{margin-top:15px;padding:10px 22px;border:1px solid var(--ink);background:#fff;color:var(--ink);
        font-family:ui-monospace,monospace;font-size:12px;letter-spacing:.08em;border-radius:2px;cursor:pointer}
   .dbg{margin-top:18px;font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.03em;color:#c2c2c2;word-break:break-all}
+  .body{min-height:60vh;animation:fade .18s ease}
+  @keyframes fade{from{opacity:.35}to{opacity:1}}
   .nav{display:flex;justify-content:space-around;padding:14px 0 calc(16px + env(safe-area-inset-bottom));margin-top:26px;
        border-top:1px solid var(--line);font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.08em;color:#a6a6a6}
+  .nav span{cursor:pointer;padding:4px 6px;transition:color .15s}
   .nav .on{color:var(--ink)}
+  .pill{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.06em;color:var(--mut)}
+  .acc{color:var(--acc)}
 </style>
 </head>
 <body>
 <div id="app"><div class="center"><div class="wm">Аида</div><div id="st">загружаю…</div></div></div>
 <script>
-const BUILD="2026-06-18b";
+const BUILD="2026-06-18c";
 const API_BASE="https://aida.denisdaragan.com:8443";
 const SYM={RUB:"₽",USD:"$",EUR:"€"};
 const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-const money=(m,c)=>(Math.round(m)/100).toLocaleString("ru-RU")+" "+(SYM[c]||c||"");
+const rub=m=>(Math.round(m)/100).toLocaleString("ru-RU");
+const money=(m,c)=>rub(m)+" "+(SYM[c]||c||"");
 const tg=window.Telegram&&window.Telegram.WebApp;
 const $=id=>document.getElementById(id);
-let LAST="—";
 
-// Диагностическая строка для скриншота: билд · платформа · версия · длина initData · последнее событие.
+let D=null, NAME="", DEMOMODE=false, TAB="today", TZ="Europe/Moscow", LAST="—";
+
 function dbg(){
   const plat=(tg&&tg.platform)||"browser";
   const ver=(tg&&tg.version)||"-";
@@ -54,19 +62,22 @@ function dbg(){
   return BUILD+" · "+plat+" · v"+ver+" · init:"+il+" · "+LAST;
 }
 
-const DEMO={tasks:[{title:"Zoom с Андреем",due:"вт, 17 июн 14:00 (Мск)",overdue:false},
-  {title:"Позвонить по бетону · Пунто-Алла",due:"вт, 17 июн 16:00 (Мск)",overdue:false},
-  {title:"Согласовать смету · Ташкент",due:null,overdue:false}],
+// ---------- демо для превью в обычном браузере ----------
+const _h=n=>new Date(Date.now()+n*3600e3).toISOString();
+const DEMO={
+  tz:"Europe/Moscow",
+  tasks:[{id:1,title:"Zoom с Андреем",due_iso:_h(5),overdue:false},
+         {id:2,title:"Позвонить по бетону · Пунто-Алла",due_iso:_h(28),overdue:false},
+         {id:3,title:"Отправить акт · La Pigna",due_iso:_h(-20),overdue:true},
+         {id:4,title:"Согласовать смету · Ташкент",due_iso:null,overdue:false}],
   done_today:2,
   finance:{total:[{cur:"RUB",total:32000000}],
     by_project:[{grp:"Пунто-Алла",cur:"RUB",total:18000000},{grp:"Ташкент",cur:"RUB",total:9000000},{grp:"La Pigna",cur:"RUB",total:5000000}],
     weekly:[{label:"26.05",amount_minor:14000000},{label:"02.06",amount_minor:21000000},{label:"09.06",amount_minor:12000000},{label:"16.06",amount_minor:28000000}]},
   documents:[{title:"Договор · Л-Бюро",cp:"ООО «Л-Бюро»",doc_date:"05.05",amount_minor:7000000,currency:"RUB"}]};
 
-// Любое не-рабочее состояние — это всегда видимый экран (никогда не чёрный) + диагностика.
-function screen(inner){
-  $("app").innerHTML='<div class="center"><div class="wm">Аида</div>'+inner+'<div class="dbg">'+esc(dbg())+'</div></div>';
-}
+// ---------- служебные экраны (никогда не чёрные) ----------
+function screen(inner){ $("app").innerHTML='<div class="center"><div class="wm">Аида</div>'+inner+'<div class="dbg">'+esc(dbg())+'</div></div>'; }
 function boot(msg){ LAST=msg; screen('<div>'+esc(msg)+'</div>'); }
 function fail(title,detail){ LAST=detail||title;
   screen('<div>'+esc(title)+'</div>'+(detail?'<div class="muted" style="font-size:12px">'+esc(detail)+'</div>':'')
@@ -75,95 +86,157 @@ function needOpen(){ LAST="нет initData";
   screen('<div>Открой Аиду кнопкой «Aida» внизу чата с ботом — так передаётся вход.</div>'
     +'<button class="btn" onclick="location.reload()">Обновить</button>'); }
 
-function render(d,name,demo){
-  const today=new Date().toLocaleDateString("ru-RU",{weekday:"short",day:"2-digit",month:"2-digit"}).toUpperCase();
-  const tasks=d.tasks||[]; const hero=tasks.find(t=>t.due)||tasks[0];
-  const fin=d.finance||{total:[],by_project:[],weekly:[]};
-  const maxP=Math.max(1,...fin.by_project.map(p=>p.total));
-  const maxW=Math.max(1,...fin.weekly.map(w=>w.amount_minor));
-  let h="";
-  h+='<div class="hdr"><span class="wm">Аида</span><span class="lbl">'+esc(today)+'&nbsp;<span style="color:var(--acc)">■</span></span></div>';
-  if(demo) h+='<div class="banner">ДЕМО-РЕЖИМ · открой через бота для своих данных</div>';
+// ---------- даты/раскладка ----------
+function dateInTz(iso){ try{ return new Date(iso).toLocaleDateString("en-CA",{timeZone:TZ}); }catch(e){ return ""; } }
+function humanDue(t){
+  if(t.due) return t.due;
+  if(!t.due_iso) return "без времени";
+  try{ return new Date(t.due_iso).toLocaleString("ru-RU",{timeZone:TZ,weekday:"short",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); }
+  catch(e){ return "без времени"; }
+}
+function bucketOf(t,today,tom){
+  if(!t.due_iso) return "Без срока";
+  if(t.overdue) return "Просрочено";
+  const ds=dateInTz(t.due_iso);
+  if(ds===today) return "Сегодня";
+  if(ds===tom)   return "Завтра";
+  return "Позже";
+}
 
+// ---------- строительные блоки ----------
+function taskRow(t,last){
+  return '<div class="row"'+(last?' style="border-bottom:none"':'')+'>'
+    +'<span class="dot'+(t.overdue?' od':'')+'"></span>'
+    +'<span style="flex:1">'+esc(t.title)+'</span>'
+    +(t.due_iso||t.due?'<span class="muted" style="font-size:12px;white-space:nowrap">'+esc(humanDue(t))+'</span>':'')+'</div>';
+}
+function bars(items,valf,labf){
+  const max=Math.max(1,...items.map(valf));
+  return items.map(x=>'<div><div class="bk"><span>'+esc(labf(x))+'</span><span class="muted">'+money(valf(x),x.cur)+'</span></div>'
+    +'<div class="tr"><div class="fl" style="width:'+Math.max(4,Math.round(100*valf(x)/max))+'%"></div></div></div>').join('');
+}
+
+// ---------- вкладки ----------
+function viewToday(){
+  const ts=D.tasks||[];
+  const today=new Date().toLocaleDateString("en-CA",{timeZone:TZ});
+  const tom=new Date(Date.now()+24*3600e3).toLocaleDateString("en-CA",{timeZone:TZ});
+  const overdue=ts.filter(t=>t.overdue);
+  const todays=ts.filter(t=>!t.overdue && t.due_iso && dateInTz(t.due_iso)===today);
+  const next=ts.find(t=>t.due_iso&&!t.overdue)||overdue[0]||ts[0]||null;
+  let h='';
   h+='<div class="sec">';
-  if(hero){ h+='<div class="lbl">СЕЙЧАС</div><div style="font-size:22px;font-weight:500;margin-top:7px">'+esc(hero.title)+'</div>'+
-    '<div class="muted" style="font-size:13px;margin-top:3px">'+esc(hero.due||"без времени")+'</div>'; }
+  if(next){ h+='<div class="lbl">'+(next.overdue?'<span class="acc">ПРОСРОЧЕНО</span>':'СЕЙЧАС')+'</div>'
+      +'<div style="font-size:22px;font-weight:500;margin-top:7px">'+esc(next.title)+'</div>'
+      +'<div class="muted" style="font-size:13px;margin-top:3px">'+esc(humanDue(next))+'</div>'; }
   else h+='<div class="lbl">СЕГОДНЯ</div><div style="font-size:20px;font-weight:500;margin-top:7px">Пусто. Редкий день.</div>';
   h+='</div>';
 
-  h+='<div class="sec"><div style="display:flex;justify-content:space-between;align-items:baseline">'+
-     '<span class="lbl">ДЕЛА</span><span class="lbl">'+(d.done_today||0)+' СДЕЛАНО</span></div>';
-  if(tasks.length) tasks.forEach((t,i)=>{ h+='<div class="row" style="'+(i==tasks.length-1?"border-bottom:none":"")+'">'+
-    '<span class="dot"></span><span style="flex:1">'+esc(t.title)+'</span>'+(t.due?'<span class="muted" style="font-size:12px">'+esc(t.due)+'</span>':"")+'</div>'; });
-  else h+='<div class="muted" style="padding:10px 0">Открытых дел нет.</div>';
+  if(overdue.length){ h+='<div class="sec"><div class="sechd"><span class="lbl acc">ПРОСРОЧЕНО</span><span class="pill acc">'+overdue.length+'</span></div>';
+    overdue.forEach((t,i)=>h+=taskRow(t,i===overdue.length-1)); h+='</div>'; }
+
+  h+='<div class="sec"><div class="sechd"><span class="lbl">СЕГОДНЯ</span><span class="pill">'+(D.done_today||0)+' СДЕЛАНО</span></div>';
+  if(todays.length) todays.forEach((t,i)=>h+=taskRow(t,i===todays.length-1));
+  else h+='<div class="muted" style="padding:10px 0">На сегодня по времени ничего. Загляни в ДЕЛА.</div>';
   h+='</div>';
 
+  const fin=D.finance||{total:[]};
   h+='<div class="sec"><div class="lbl">РАСХОДЫ · МЕСЯЦ</div>';
-  if(fin.total.length){ h+='<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:8px">';
-    fin.total.forEach((x,i)=>{ h+='<span class="big">'+(Math.round(x.total)/100).toLocaleString("ru-RU")+'</span><span class="muted" style="font-size:18px">'+(SYM[x.cur]||x.cur)+'</span>'+(i<fin.total.length-1?'<span class="muted">·</span>':''); });
+  if(fin.total&&fin.total.length){ h+='<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:8px">';
+    fin.total.forEach((x,i)=>h+='<span class="big">'+rub(x.total)+'</span><span class="muted" style="font-size:18px">'+(SYM[x.cur]||x.cur)+'</span>'+(i<fin.total.length-1?'<span class="muted">·</span>':''));
     h+='</div>'; } else h+='<div class="big" style="margin-top:8px">0 ₽</div>';
-  if(fin.by_project.length){ h+='<div style="margin-top:16px;display:flex;flex-direction:column;gap:12px">';
-    fin.by_project.forEach(p=>{ h+='<div><div class="bk"><span>'+esc(p.grp)+'</span><span class="muted">'+money(p.total,p.cur)+'</span></div><div class="tr"><div class="fl" style="width:'+Math.max(4,Math.round(100*p.total/maxP))+'%"></div></div></div>'; });
-    h+='</div>'; }
-  if(fin.weekly.length){ h+='<div style="margin-top:20px"><div class="lbl">ПО НЕДЕЛЯМ</div><div style="display:flex;align-items:flex-end;gap:8px;height:56px;margin-top:10px">';
-    fin.weekly.forEach((w,i)=>{ h+='<div class="wk" style="height:'+Math.max(4,Math.round(100*w.amount_minor/maxW))+'%;'+(i==fin.weekly.length-1?'background:var(--ink)':'')+'"></div>'; });
-    h+='</div><div style="display:flex;justify-content:space-between;font-family:ui-monospace,monospace;font-size:11px;color:#a6a6a6;margin-top:6px">'+fin.weekly.map(w=>'<span>'+esc(w.label)+'</span>').join('')+'</div></div>'; }
   h+='</div>';
+  return h;
+}
 
-  const docs=d.documents||[];
-  if(docs.length){ h+='<div class="sec"><div class="lbl">ДОКУМЕНТЫ</div>';
-    docs.forEach((x,i)=>{ const sub=[x.cp,x.doc_date].filter(Boolean).join(" · ");
-      h+='<div class="row" style="'+(i==docs.length-1?"border-bottom:none":"")+'"><span style="flex:1"><div style="font-weight:500">'+esc(x.title)+'</div>'+(sub?'<div class="muted" style="font-size:12px">'+esc(sub)+'</div>':"")+'</span>'+(x.amount_minor?'<span style="font-size:13px">'+money(x.amount_minor,x.currency)+'</span>':"")+'</div>'; });
-    h+='</div>'; }
+function viewTasks(){
+  const ts=D.tasks||[];
+  const today=new Date().toLocaleDateString("en-CA",{timeZone:TZ});
+  const tom=new Date(Date.now()+24*3600e3).toLocaleDateString("en-CA",{timeZone:TZ});
+  const order=["Просрочено","Сегодня","Завтра","Позже","Без срока"];
+  const groups={}; order.forEach(g=>groups[g]=[]);
+  ts.forEach(t=>groups[bucketOf(t,today,tom)].push(t));
+  let h='<div class="sec"><div class="sechd"><span class="lbl">ОТКРЫТЫХ · '+ts.length+'</span><span class="pill">'+(D.done_today||0)+' СДЕЛАНО СЕГОДНЯ</span></div></div>';
+  if(!ts.length) return h+'<div class="muted" style="padding:18px 0">Открытых дел нет. Чисто.</div>';
+  order.forEach(g=>{ const arr=groups[g]; if(!arr.length) return;
+    h+='<div class="sec"><div class="sechd"><span class="lbl'+(g==="Просрочено"?' acc':'')+'">'+g.toUpperCase()+'</span><span class="pill'+(g==="Просрочено"?' acc':'')+'">'+arr.length+'</span></div>';
+    arr.forEach((t,i)=>h+=taskRow(t,i===arr.length-1)); h+='</div>'; });
+  return h;
+}
 
-  h+='<div class="nav"><span class="on">СЕГОДНЯ</span><span>ДЕЛА</span><span>ФИНАНСЫ</span><span>ДОКИ</span></div>';
+function viewFinance(){
+  const fin=D.finance||{total:[],by_project:[],weekly:[]};
+  let h='<div class="sec"><div class="lbl">РАСХОДЫ · МЕСЯЦ</div>';
+  if(fin.total&&fin.total.length){ h+='<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:8px">';
+    fin.total.forEach((x,i)=>h+='<span class="big">'+rub(x.total)+'</span><span class="muted" style="font-size:18px">'+(SYM[x.cur]||x.cur)+'</span>'+(i<fin.total.length-1?'<span class="muted">·</span>':''));
+    h+='</div>'; } else h+='<div class="big" style="margin-top:8px">0 ₽</div>';
+  h+='</div>';
+  if(fin.by_project&&fin.by_project.length){ h+='<div class="sec"><div class="lbl">ПО ПРОЕКТАМ</div><div style="margin-top:12px;display:flex;flex-direction:column;gap:12px">'
+    +bars(fin.by_project,p=>p.total,p=>p.grp)+'</div></div>'; }
+  if(fin.weekly&&fin.weekly.length){ const maxW=Math.max(1,...fin.weekly.map(w=>w.amount_minor));
+    h+='<div class="sec"><div class="lbl">ПО НЕДЕЛЯМ</div><div style="display:flex;align-items:flex-end;gap:8px;height:64px;margin-top:12px">';
+    fin.weekly.forEach((w,i)=>h+='<div class="wk" style="height:'+Math.max(4,Math.round(100*w.amount_minor/maxW))+'%;'+(i===fin.weekly.length-1?'background:var(--ink)':'')+'"></div>');
+    h+='</div><div style="display:flex;justify-content:space-between;font-family:ui-monospace,monospace;font-size:11px;color:#a6a6a6;margin-top:6px">'
+      +fin.weekly.map(w=>'<span>'+esc(w.label)+'</span>').join('')+'</div></div>'; }
+  if((!fin.total||!fin.total.length)&&(!fin.by_project||!fin.by_project.length))
+    h+='<div class="muted" style="padding:14px 0">Трат за месяц пока нет. Скажи боту голосом — появятся здесь.</div>';
+  return h;
+}
+
+function viewDocs(){
+  const docs=D.documents||[];
+  let h='<div class="sec"><div class="sechd"><span class="lbl">ДОКУМЕНТЫ</span><span class="pill">'+docs.length+'</span></div>';
+  if(!docs.length) return h+'<div class="muted" style="padding:14px 0">Документов нет. Пришли боту PDF — карточка ляжет сюда.</div></div>';
+  docs.forEach((x,i)=>{ const sub=[x.cp,x.doc_date].filter(Boolean).join(" · ");
+    h+='<div class="row"'+(i===docs.length-1?' style="border-bottom:none"':'')+'>'
+      +'<span style="flex:1"><div style="font-weight:500">'+esc(x.title)+'</div>'+(sub?'<div class="muted" style="font-size:12px">'+esc(sub)+'</div>':'')+'</span>'
+      +(x.amount_minor?'<span style="font-size:13px;white-space:nowrap">'+money(x.amount_minor,x.currency)+'</span>':'')+'</div>'; });
+  return h+'</div>';
+}
+
+const TABS={today:{t:"СЕГОДНЯ",f:viewToday},tasks:{t:"ДЕЛА",f:viewTasks},finance:{t:"ФИНАНСЫ",f:viewFinance},docs:{t:"ДОКИ",f:viewDocs}};
+
+function renderApp(){
+  const today=new Date().toLocaleDateString("ru-RU",{weekday:"short",day:"2-digit",month:"2-digit"}).toUpperCase();
+  let h='<div class="hdr"><span class="wm">Аида</span><span class="lbl">'+esc(today)+'&nbsp;<span class="acc">■</span></span></div>';
+  if(DEMOMODE) h+='<div class="banner">ДЕМО-РЕЖИМ · открой через бота для своих данных</div>';
+  h+='<div class="body">'+TABS[TAB].f()+'</div>';
+  h+='<div class="nav">'+Object.keys(TABS).map(k=>'<span data-tab="'+k+'" class="'+(k===TAB?'on':'')+'" onclick="setTab(\''+k+'\')">'+TABS[k].t+'</span>').join('')+'</div>';
   h+='<div class="dbg" style="text-align:center;padding:0 0 14px">'+esc(dbg())+'</div>';
   $("app").innerHTML=h;
 }
+window.setTab=function(k){ if(!TABS[k]||k===TAB) {TAB=k; renderApp(); return;} TAB=k; renderApp();
+  try{ if(tg&&tg.HapticFeedback) tg.HapticFeedback.selectionChanged(); }catch(e){} };
 
-// fetch с таймаутом — чтобы экран никогда не висел вечно на «загрузка…».
+function show(data,name,demo){ D=data; NAME=name||""; DEMOMODE=!!demo; TZ=(data&&data.tz)||"Europe/Moscow"; LAST="ok"; renderApp(); }
+
+// ---------- сеть/поток ----------
 async function fetchJSON(url,opts,ms){
   const ctl=new AbortController(); const t=setTimeout(()=>ctl.abort(),ms||12000);
   try{ return await fetch(url,Object.assign({cache:"no-store",signal:ctl.signal},opts||{})); }
   finally{ clearTimeout(t); }
 }
-
-// Кэш токена на время сессии вебвью: если Telegram перезагрузит страницу после auth,
-// второй заход сразу идёт в dashboard (а не зацикливается на повторной авторизации).
 function saveTok(j){ try{ sessionStorage.setItem("aida_tok",JSON.stringify({t:j.token,n:j.name,e:Date.now()+50*60*1000})); }catch(e){} }
 function loadTok(){ try{ const o=JSON.parse(sessionStorage.getItem("aida_tok")||"null"); return (o&&o.e>Date.now())?o:null; }catch(e){ return null; } }
 function dropTok(){ try{ sessionStorage.removeItem("aida_tok"); }catch(e){} }
-
-async function getDashboard(token){
-  return fetchJSON(API_BASE+"/api/dashboard",{headers:{"Authorization":"Bearer "+token}});
-}
+async function getDashboard(token){ return fetchJSON(API_BASE+"/api/dashboard",{headers:{"Authorization":"Bearer "+token}}); }
 
 let STARTED=false;
 async function start(){
   if(STARTED) return; STARTED=true;
   try{ if(tg) tg.ready(); }catch(e){}
-  // expand/цвета — отложенно и в try, чтобы перелэйаут не сбивал критичный путь авторизации.
   setTimeout(()=>{ try{ if(tg){ tg.expand(); tg.setHeaderColor("#ffffff"); tg.setBackgroundColor("#ffffff"); } }catch(e){} },0);
 
-  // SDK создаёт WebApp и в обычном браузере (platform="unknown"). Различаем:
-  // браузер → ДЕМО-превью; настоящий Telegram без initData → понятное сообщение.
   const inTg=!!(tg&&tg.platform&&tg.platform!=="unknown");
-  if(!inTg){ render(DEMO,"демо",true); return; }         // обычный браузер — превью дизайна
+  if(!inTg){ show(DEMO,"демо",true); return; }            // обычный браузер — превью
   const initData=tg.initData||"";
-  if(!initData){ needOpen(); return; }                   // Telegram есть, но входа нет (баг десктопа)
+  if(!initData){ needOpen(); return; }                    // Telegram без входа
 
-  // 1) пробуем кэшированный токен — переживает перезагрузку вебвью
   const cached=loadTok();
-  if(cached){
-    boot("загрузка данных…");
-    try{
-      const r=await getDashboard(cached.t);
-      if(r.ok){ LAST="ok"; render(await r.json(),cached.n,false); return; }
-      dropTok(); // 401/просрочен — пойдём авторизуемся заново
-    }catch(e){ /* нет связи — упадём в свежую авторизацию ниже */ dropTok(); }
-  }
+  if(cached){ boot("загрузка данных…");
+    try{ const r=await getDashboard(cached.t); if(r.ok){ show(await r.json(),cached.n,false); return; } dropTok(); }
+    catch(e){ dropTok(); } }
 
-  // 2) свежая авторизация
   boot("авторизация…");
   let a;
   try{ a=await fetchJSON(API_BASE+"/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({initData})}); }
@@ -172,14 +245,13 @@ async function start(){
   let j; try{ j=await a.json(); }catch(e){ fail("Битый ответ авторизации","auth json"); return; }
   saveTok(j);
 
-  // 3) данные
   boot("загрузка данных…");
   let r;
   try{ r=await getDashboard(j.token); }
   catch(e){ fail("Нет связи с сервером","dash: "+(e&&e.name==="AbortError"?"таймаут":(e&&e.message||e))); return; }
   if(!r.ok){ fail("Данные недоступны","код "+r.status); return; }
   let data; try{ data=await r.json(); }catch(e){ fail("Битый ответ данных","dash json"); return; }
-  LAST="ok"; render(data,j.name,false);
+  show(data,j.name,false);
 }
 
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",start); else start();
