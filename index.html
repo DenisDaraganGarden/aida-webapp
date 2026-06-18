@@ -53,7 +53,7 @@
 <body>
 <div id="app"><div class="center"><div class="wm">Аида</div><div id="st">загружаю…</div></div></div>
 <script>
-const BUILD="2026-06-18e";
+const BUILD="2026-06-18f";
 const API_BASE="https://aida.denisdaragan.com:8443";
 const SYM={RUB:"₽",USD:"$",EUR:"€"};
 const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
@@ -302,14 +302,14 @@ window.act=async function(ev,id,action,mode){
   if(DEMOMODE||!TOKEN||BUSY) return;
   BUSY=true;
   try{
-    const r=await fetchJSON(API_BASE+"/api/task/"+id+"/action",
+    const r=await tryFetch(API_BASE+"/api/task/"+id+"/action",
       {method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+TOKEN},
        body:JSON.stringify({action:action,mode:mode||""})});
     if(!r.ok){ notify(r.status===409?"Задача уже не открыта.":"Не вышло (код "+r.status+")"); return; }
     const d=await getDashboard(TOKEN);
     if(d.ok){ const data=await d.json(); D=data; TZ=data.tz||TZ; OPEN_ID=null; }
     try{ if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); }catch(e){}
-  }catch(e){ notify("Нет связи с сервером."); }
+  }catch(e){ notify("Нет связи — проверь сеть или VPN."); }
   finally{ BUSY=false; renderApp(); }
 };
 
@@ -321,10 +321,14 @@ async function fetchJSON(url,opts,ms){
   try{ return await fetch(url,Object.assign({cache:"no-store",signal:ctl.signal},opts||{})); }
   finally{ clearTimeout(t); }
 }
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+// Транзиентные сбои сети (часто — переподключение VPN) пере-пробуем, прежде чем показать ошибку.
+async function tryFetch(url,opts){ let e; for(let i=0;i<3;i++){
+  try{ return await fetchJSON(url,opts,9000); }catch(err){ e=err; if(i<2) await sleep(600*(i+1)); } } throw e; }
 function saveTok(j){ try{ sessionStorage.setItem("aida_tok",JSON.stringify({t:j.token,n:j.name,e:Date.now()+50*60*1000})); }catch(e){} }
 function loadTok(){ try{ const o=JSON.parse(sessionStorage.getItem("aida_tok")||"null"); return (o&&o.e>Date.now())?o:null; }catch(e){ return null; } }
 function dropTok(){ try{ sessionStorage.removeItem("aida_tok"); }catch(e){} }
-async function getDashboard(token){ return fetchJSON(API_BASE+"/api/dashboard",{headers:{"Authorization":"Bearer "+token}}); }
+async function getDashboard(token){ return tryFetch(API_BASE+"/api/dashboard",{headers:{"Authorization":"Bearer "+token}}); }
 
 let STARTED=false;
 async function start(){
@@ -344,8 +348,8 @@ async function start(){
 
   boot("авторизация…");
   let a;
-  try{ a=await fetchJSON(API_BASE+"/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({initData})}); }
-  catch(e){ fail("Нет связи с сервером","auth: "+(e&&e.name==="AbortError"?"таймаут":(e&&e.message||e))); return; }
+  try{ a=await tryFetch(API_BASE+"/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({initData})}); }
+  catch(e){ fail("Нет связи — проверь сеть или VPN","auth: "+(e&&e.name==="AbortError"?"таймаут":(e&&e.message||e))); return; }
   if(!a.ok){ fail(a.status===403?"Доступ только у владельца":"Авторизация не прошла","код "+a.status); return; }
   let j; try{ j=await a.json(); }catch(e){ fail("Битый ответ авторизации","auth json"); return; }
   saveTok(j); TOKEN=j.token;
@@ -353,7 +357,7 @@ async function start(){
   boot("загрузка данных…");
   let r;
   try{ r=await getDashboard(j.token); }
-  catch(e){ fail("Нет связи с сервером","dash: "+(e&&e.name==="AbortError"?"таймаут":(e&&e.message||e))); return; }
+  catch(e){ fail("Нет связи — проверь сеть или VPN","dash: "+(e&&e.name==="AbortError"?"таймаут":(e&&e.message||e))); return; }
   if(!r.ok){ fail("Данные недоступны","код "+r.status); return; }
   let data; try{ data=await r.json(); }catch(e){ fail("Битый ответ данных","dash json"); return; }
   show(data,j.name,false);
