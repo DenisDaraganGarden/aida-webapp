@@ -39,12 +39,18 @@
   .nav .on{color:var(--ink)}
   .pill{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.06em;color:var(--mut)}
   .acc{color:var(--acc)}
+  .row.tap{cursor:pointer}
+  .acts{display:flex;gap:7px;padding:2px 0 12px;border-bottom:1px solid #f1f1f1}
+  .act{flex:1;text-align:center;padding:9px 4px;border:1px solid var(--line);border-radius:2px;
+       font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.04em;color:var(--ink);background:#fff;cursor:pointer}
+  .act.go{border-color:var(--ink)}
+  .act.del{color:var(--acc);border-color:#f1d7d1;flex:0 0 44px}
 </style>
 </head>
 <body>
 <div id="app"><div class="center"><div class="wm">Аида</div><div id="st">загружаю…</div></div></div>
 <script>
-const BUILD="2026-06-18c";
+const BUILD="2026-06-18d";
 const API_BASE="https://aida.denisdaragan.com:8443";
 const SYM={RUB:"₽",USD:"$",EUR:"€"};
 const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
@@ -53,7 +59,8 @@ const money=(m,c)=>rub(m)+" "+(SYM[c]||c||"");
 const tg=window.Telegram&&window.Telegram.WebApp;
 const $=id=>document.getElementById(id);
 
-let D=null, NAME="", DEMOMODE=false, TAB="today", TZ="Europe/Moscow", LAST="—";
+let D=null, NAME="", DEMOMODE=false, TAB="today", TZ="Europe/Moscow", LAST="—",
+    OPEN_ID=null, TOKEN=null, BUSY=false;
 
 function dbg(){
   const plat=(tg&&tg.platform)||"browser";
@@ -105,10 +112,22 @@ function bucketOf(t,today,tom){
 
 // ---------- строительные блоки ----------
 function taskRow(t,last){
-  return '<div class="row"'+(last?' style="border-bottom:none"':'')+'>'
+  const it=!DEMOMODE&&t.id;                 // действия — только на реальных данных
+  const open=it&&OPEN_ID===t.id;
+  let r='<div class="row'+(it?' tap':'')+'"'+((last&&!open)?' style="border-bottom:none"':'')
+    +(it?' onclick="toggleRow(event,'+t.id+')"':'')+'>'
     +'<span class="dot'+(t.overdue?' od':'')+'"></span>'
     +'<span style="flex:1">'+esc(t.title)+'</span>'
     +(t.due_iso||t.due?'<span class="muted" style="font-size:12px;white-space:nowrap">'+esc(humanDue(t))+'</span>':'')+'</div>';
+  if(open){
+    r+='<div class="acts">'
+      +'<div class="act go" onclick="act(event,'+t.id+',\'done\')">✓ ГОТОВО</div>'
+      +'<div class="act" onclick="act(event,'+t.id+',\'snooze\',\'tomorrow\')">ЗАВТРА</div>'
+      +'<div class="act" onclick="act(event,'+t.id+',\'snooze\',\'hour\')">+1 Ч</div>'
+      +'<div class="act del" onclick="act(event,'+t.id+',\'cancel\')">✕</div>'
+      +'</div>';
+  }
+  return r;
 }
 function bars(items,valf,labf){
   const max=Math.max(1,...items.map(valf));
@@ -205,8 +224,30 @@ function renderApp(){
   h+='<div class="dbg" style="text-align:center;padding:0 0 14px">'+esc(dbg())+'</div>';
   $("app").innerHTML=h;
 }
-window.setTab=function(k){ if(!TABS[k]||k===TAB) {TAB=k; renderApp(); return;} TAB=k; renderApp();
+window.setTab=function(k){ if(!TABS[k]) return; TAB=k; OPEN_ID=null; renderApp();
   try{ if(tg&&tg.HapticFeedback) tg.HapticFeedback.selectionChanged(); }catch(e){} };
+
+window.toggleRow=function(ev,id){ if(ev) ev.stopPropagation(); OPEN_ID=(OPEN_ID===id?null:id); renderApp();
+  try{ if(tg&&tg.HapticFeedback) tg.HapticFeedback.selectionChanged(); }catch(e){} };
+
+function notify(msg){ try{ if(tg&&tg.showAlert){ tg.showAlert(msg); return; } }catch(e){} try{ alert(msg); }catch(e){} }
+
+// Действие над задачей: шлём на API, затем перезапрашиваем доску (гарантированно консистентно с сервером).
+window.act=async function(ev,id,action,mode){
+  if(ev) ev.stopPropagation();
+  if(DEMOMODE||!TOKEN||BUSY) return;
+  BUSY=true;
+  try{
+    const r=await fetchJSON(API_BASE+"/api/task/"+id+"/action",
+      {method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+TOKEN},
+       body:JSON.stringify({action:action,mode:mode||""})});
+    if(!r.ok){ notify(r.status===409?"Задача уже не открыта.":"Не вышло (код "+r.status+")"); return; }
+    const d=await getDashboard(TOKEN);
+    if(d.ok){ const data=await d.json(); D=data; TZ=data.tz||TZ; OPEN_ID=null; }
+    try{ if(tg&&tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); }catch(e){}
+  }catch(e){ notify("Нет связи с сервером."); }
+  finally{ BUSY=false; renderApp(); }
+};
 
 function show(data,name,demo){ D=data; NAME=name||""; DEMOMODE=!!demo; TZ=(data&&data.tz)||"Europe/Moscow"; LAST="ok"; renderApp(); }
 
@@ -234,7 +275,7 @@ async function start(){
 
   const cached=loadTok();
   if(cached){ boot("загрузка данных…");
-    try{ const r=await getDashboard(cached.t); if(r.ok){ show(await r.json(),cached.n,false); return; } dropTok(); }
+    try{ const r=await getDashboard(cached.t); if(r.ok){ TOKEN=cached.t; show(await r.json(),cached.n,false); return; } dropTok(); }
     catch(e){ dropTok(); } }
 
   boot("авторизация…");
@@ -243,7 +284,7 @@ async function start(){
   catch(e){ fail("Нет связи с сервером","auth: "+(e&&e.name==="AbortError"?"таймаут":(e&&e.message||e))); return; }
   if(!a.ok){ fail(a.status===403?"Доступ только у владельца":"Авторизация не прошла","код "+a.status); return; }
   let j; try{ j=await a.json(); }catch(e){ fail("Битый ответ авторизации","auth json"); return; }
-  saveTok(j);
+  saveTok(j); TOKEN=j.token;
 
   boot("загрузка данных…");
   let r;
