@@ -53,7 +53,7 @@
 <body>
 <div id="app"><div class="center"><div class="wm">Аида</div><div id="st">загружаю…</div></div></div>
 <script>
-const BUILD="2026-06-18f";
+const BUILD="2026-06-18g";
 const API_BASE="https://aida.denisdaragan.com:8443";
 const SYM={RUB:"₽",USD:"$",EUR:"€"};
 const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
@@ -314,6 +314,18 @@ window.act=async function(ev,id,action,mode){
 };
 
 function show(data,name,demo){ D=data; NAME=name||""; DEMOMODE=!!demo; TZ=(data&&data.tz)||"Europe/Moscow"; LAST="ok"; renderApp(); }
+
+// Авто-обновление при возврате на приложение — чтобы экран не отставал от голосовых правок.
+let _refreshing=false;
+async function refresh(){
+  if(DEMOMODE||!TOKEN||_refreshing) return;
+  _refreshing=true;
+  try{ const r=await getDashboard(TOKEN); if(r.ok){ const data=await r.json(); D=data; TZ=data.tz||TZ; renderApp(); } }
+  catch(e){}
+  finally{ _refreshing=false; }
+}
+document.addEventListener("visibilitychange",function(){ if(!document.hidden) refresh(); });
+window.addEventListener("focus", refresh);
 
 // ---------- сеть/поток ----------
 async function fetchJSON(url,opts,ms){
